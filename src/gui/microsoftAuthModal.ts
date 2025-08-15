@@ -1,25 +1,32 @@
-import { Modal } from 'obsidian';
+import { type App, Modal } from 'obsidian';
+import { t } from '../lib/lang.js';
 
 export class MicrosoftAuthModal extends Modal {
-	constructor(private readonly deviceCode: string, private readonly authUrl: string) {
-		super(app);
-	}
-	onOpen(): void {
-		const { contentEl } = this;
+    constructor(
+        app: App,
+        private readonly deviceCode: string,
+        private readonly authUrl: string,
+    ) {
+        super(app);
+    }
 
-		contentEl.empty();
-		contentEl.addClass('auth-modal');
+    onOpen(): void {
+        const { contentEl } = this;
 
-		contentEl.createEl('h2', { text: '首次使用需要进行微软验证' });
-		// contentEl.createEl("span",{text:`设备代码 ${this.deviceCode} 已复制到剪贴板`})
-		contentEl.createEl('h4', { text: this.deviceCode });
-		// contentEl.createEl("span",{text:`设备代码已复制到剪贴板`})
-		contentEl.createEl('div', { text: '设备代码已复制到剪贴板，请点击下面的链接验证' });
-		contentEl.createEl('a', { text: this.authUrl, href: this.authUrl });
-		contentEl.createEl('hr');
-	}
-	onClose(): void {
-		const { contentEl } = this;
-		contentEl.empty();
-	}
+        contentEl.empty();
+        contentEl.addClass('auth-modal');
+
+        contentEl.createEl('h2', { text: t('Auth_Heading_VerificationRequiredForFirstUse') });
+        // ContentEl.createEl("span",{text:`设备代码 ${this.deviceCode} 已复制到剪贴板`})
+        contentEl.createEl('h4', { text: this.deviceCode });
+        // ContentEl.createEl("span",{text:`设备代码已复制到剪贴板`})
+        contentEl.createEl('div', { text: t('Auth_Text_CodeCopiedClipboard') });
+        contentEl.createEl('a', { text: this.authUrl, href: this.authUrl });
+        contentEl.createEl('hr');
+    }
+
+    onClose(): void {
+        const { contentEl } = this;
+        contentEl.empty();
+    }
 }

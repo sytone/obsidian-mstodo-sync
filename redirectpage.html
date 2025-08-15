@@ -1,0 +1,46 @@
+<html>
+    <head>
+        <title>ToDoObsidianRedirect</title>
+    </head>
+
+    <body>
+        <script>
+            function redirectTo(destination, params) {
+                // Get the current URL's query string
+                var currentParams = window.location.search.slice(1);
+
+                // Merge the current parameters with the new parameters
+                var mergedParams = Object.assign({}, parseQueryString(currentParams), params);
+
+                // Build the query string from the merged parameters
+                var queryString = Object.keys(mergedParams)
+                    .map(function (key) {
+                        return encodeURIComponent(key) + '=' + encodeURIComponent(mergedParams[key]);
+                    })
+                    .join('&');
+
+                // Append the query string to the redirect URL
+                destination += '?' + queryString;
+
+                // Redirect the user to the new URL
+                window.location.href = destination;
+            }
+
+            // Helper function to parse a query string into an object
+            function parseQueryString(queryString) {
+                var params = {};
+                if (queryString) {
+                    queryString.split('&').forEach(function (pair) {
+                        var parts = pair.split('=');
+                        var key = decodeURIComponent(parts[0]);
+                        var value = decodeURIComponent(parts[1] || '');
+                        params[key] = value;
+                    });
+                }
+                return params;
+            }
+
+            redirectTo('obsidian://adv-uri');
+        </script>
+    </body>
+</html>
