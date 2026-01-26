@@ -26,8 +26,8 @@ jobs:
             - name: Build
               id: build
               run: |
-                  npm install
-                  npm run build
+                  pnpm install
+                  pnpm run build
             # Package the required files into a zip
             - name: Package Plugin 📦
               run: |
