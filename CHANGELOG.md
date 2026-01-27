@@ -32,7 +32,8 @@ All notable changes to this project will be documented in this file.
 - Updated README with correct Entra App setup instructions
 - Removed redundant workflow files
 - **Task Formatting**: Default replacement format is now cleaner (`- [ ] Task Name`) without list name or creation date. (Includes migration for existing settings).
-- **Logging**: Reduced default log verbosity (moved many logs from info to debug).
+- **Rate Limiting**: Added a delay between list syncs to prevent "Too Many Requests" (429) errors.
+- **Logging**: Further reduced log verbosity (only log "Updated Tasks" if > 0).
 
 
 

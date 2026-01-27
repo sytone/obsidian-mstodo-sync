@@ -38,6 +38,6 @@ export class UserNotice implements IUserNotice {
     showMessage(message: string, timeout: number = this.defaultTimeout): void {
         const userMessage = new Notice(t(message), timeout);
         userMessage.setMessage(message);
-        this.logger.info(message);
+        this.logger.debug(message);
     }
 }

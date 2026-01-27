@@ -287,7 +287,11 @@ export class MsTodoActions {
             }
         }
 
-        this.logger.info(`Updated Tasks: ${updatedTasks}`);
+        if (updatedTasks > 0) {
+            this.logger.info(`Updated Tasks: ${updatedTasks}`);
+        } else {
+            this.logger.debug(`Updated Tasks: ${updatedTasks}`);
+        }
         this.userNotice.showMessage(t('CommandNotice_SyncComplete'), 3000);
     }
 
@@ -385,7 +389,7 @@ export class MsTodoActions {
             }
         }
 
-        this.logger.info('blockCache', blockCache);
+        this.logger.debug('blockCache', blockCache);
     }
 
     /**
@@ -561,7 +565,7 @@ export class MsTodoActions {
 
         // Get sum of all tasks in all lists.
         const countOfAllTasks = cachedTasksDelta.allLists.reduce((acc, list) => acc + list.allTasks.length, 0);
-        this.logger.info(`Remote Tasks: ${countOfAllTasks}`);
+        this.logger.debug(`Remote Tasks: ${countOfAllTasks}`);
 
         // Get all the lines the user has selected.
         const split = source.split('\n');
@@ -885,6 +889,9 @@ export class MsTodoActions {
         // each list we will get the delta and merge the results.
 
         for (const list of cachedTasksDelta.allLists) {
+            // Add delay to prevent rate limiting (429 errors) when processing many lists
+            await new Promise((resolve) => setTimeout(resolve, 200));
+
             const deltaLink = list.deltaLink == '' ? '' : list.deltaLink;
 
             let returnedTask = new TasksDeltaCollection([], '', list.listId, list.name);
@@ -912,7 +919,7 @@ export class MsTodoActions {
                 // this.logger.debug('Cache Details', { currentCacheCount: list.allTasks.length });
                 list.deltaLink = returnedTask.deltaLink;
             } else {
-                this.logger.info('First run or there was a reset, loading delta cache');
+                this.logger.debug('First run or there was a reset, loading delta cache');
                 list.allTasks = returnedTask.allTasks;
                 list.deltaLink = returnedTask.deltaLink;
             }
@@ -922,7 +929,7 @@ export class MsTodoActions {
             // Save the updated cache.
             const countOfAllTasks = cachedTasksDelta.allLists.reduce((acc, list) => acc + list.allTasks.length, 0);
 
-            this.logger.info(`Saving Delta Cache storing ${countOfAllTasks} tasks`);
+            this.logger.debug(`Saving Delta Cache storing ${countOfAllTasks} tasks`);
             await this.setDeltaCache(cachedTasksDelta);
         }
 
