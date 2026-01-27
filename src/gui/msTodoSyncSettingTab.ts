@@ -1,7 +1,7 @@
 import { type App, type PeriodicNotes, PluginSettingTab, Setting } from 'obsidian';
 import type MsTodoSync from 'src/main.js';
 import { t } from 'src/lib/lang.js';
-import { type ILogOptions } from 'src/lib/logging.js';
+import { type ILogOptions, logging } from 'src/lib/logging.js';
 import type { IUserNotice } from 'src/lib/userNotice.js';
 
 export interface IMsTodoSyncSettings {
@@ -60,6 +60,7 @@ export interface IMsTodoSyncSettings {
     hackingEnabled: boolean;
     microsoftToDoApplication_RedirectUriBase: string;
     autoSyncInterval: number;
+    debugLogging: boolean;
 }
 
 export const DEFAULT_SETTINGS: IMsTodoSyncSettings = {
@@ -69,6 +70,7 @@ export const DEFAULT_SETTINGS: IMsTodoSyncSettings = {
     },
     todo_CreateToDoListIfMissing: true,
     autoSyncInterval: 30,
+    debugLogging: false,
     diary: {
         folder: '',
         format: '',
@@ -99,8 +101,8 @@ export const DEFAULT_SETTINGS: IMsTodoSyncSettings = {
 
     loggingOptions: {
         minLevels: {
-            '': 'debug',
-            'mstodo-sync': 'debug',
+            '': 'info',
+            'mstodo-sync': 'info',
         },
     },
     taskIdLookup: { '0000ABCD': '0' },
@@ -199,6 +201,19 @@ export class MsTodoSyncSettingTab extends PluginSettingTab {
                         await this.plugin.saveSettings();
                         this.plugin.configureAutoSync();
                     }
+                }),
+            );
+
+        new Setting(containerEl)
+            .setName('Debug Logging')
+            .setDesc('Enable verbose logging for debugging purposes.')
+            .addToggle((toggle) =>
+                toggle.setValue(this.settings.debugLogging).onChange(async (value) => {
+                    this.settings.debugLogging = value;
+                    this.settings.loggingOptions.minLevels['mstodo-sync'] = value ? 'debug' : 'info';
+                    this.plugin.settingsManager.saveSettings();
+                    // Apply logging config immediately
+                    logging.configure(this.settings.loggingOptions);
                 }),
             );
 

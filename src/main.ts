@@ -136,6 +136,14 @@ export default class MsTodoSync extends Plugin {
     async loadSettings() {
         this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
 
+        // Ensure logging options are set correctly based on loaded settings
+        if (this.settings.debugLogging) {
+            this.settings.loggingOptions.minLevels['mstodo-sync'] = 'debug';
+        } else {
+            this.settings.loggingOptions.minLevels['mstodo-sync'] = 'info';
+        }
+        logging.configure(this.settings.loggingOptions);
+
         // Migration: Update replacement format if it matches the old default or contains unwanted placeholders
         const oldDefaultFormat =
             '- [{{STATUS_SYMBOL}}] {{TASK}}{{IMPORTANCE}}{{TASK_LIST_NAME}}{{DUE_DATE}}{{CREATED_DATE}}';

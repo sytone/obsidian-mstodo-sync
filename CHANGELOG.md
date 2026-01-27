@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file.
 - **Subtasks Support**: "Sync Task with details (Pull)" now fetches checklistItems via `$expand`
 - **Auto-Sync**: Background synchronization with configurable interval (default 30 mins).
 - **Context Menu**: "Sync Task to specific list..." option to choose a target list when pushing.
+- **Debug Logging**: Added a setting to enable/disable verbose debug logging to reduce console spam.
 
 ### Fixed
 - **New Task Cache**: Newly created tasks (Right Click -> Send to To Do) are now immediately cached, ensuring subsequent updates (like completion) sync correctly.
@@ -31,6 +32,7 @@ All notable changes to this project will be documented in this file.
 - Updated README with correct Entra App setup instructions
 - Removed redundant workflow files
 - **Task Formatting**: Default replacement format is now cleaner (`- [ ] Task Name`) without list name or creation date. (Includes migration for existing settings).
+- **Logging**: Reduced default log verbosity (moved many logs from info to debug).
 
 
 

@@ -63,7 +63,7 @@ export class MsTodoActions {
         // Get all the blocks in the vault.
         const blockCache = this.getAllVaultBlocks();
 
-        this.logger.info(`Blocks found in vault: ${Object.keys(blockCache).length}`);
+        this.logger.debug(`Blocks found in vault: ${Object.keys(blockCache).length}`);
 
         // Get the local task that is most recent in the case there are duplicate IDs in the vault.
         // The key is in the format of cacheKey-blockId. So need to pull the blockId from the key.
@@ -82,7 +82,7 @@ export class MsTodoActions {
                 const pagePath = blockCache[key].pagePath;
                 let taskContent = '';
                 if (!pageContentCache[pagePath]) {
-                    this.logger.info(`Reading Page: ${pagePath}`);
+                    this.logger.debug(`Reading Page: ${pagePath}`);
                     const fileReference = this.plugin.app.vault.getFileByPath(pagePath);
                     if (fileReference) {
                         pageContentCache[pagePath] = await this.plugin.app.vault.read(fileReference);
@@ -94,7 +94,7 @@ export class MsTodoActions {
                         blockCache[key].block.position.end.offset,
                     );
                 } else {
-                    this.logger.info(`Page content not found: ${pagePath}`, { blockId, internalPageHash });
+                    this.logger.debug(`Page content not found: ${pagePath}`, { blockId, internalPageHash });
                 }
 
                 // If the localTasks contains the block id as key, check the value
@@ -119,7 +119,7 @@ export class MsTodoActions {
             }
         }
 
-        this.logger.info(`Local Tasks: ${Object.keys(localTasks).length}`);
+        this.logger.debug(`Local Tasks: ${Object.keys(localTasks).length}`);
 
         // Get all the tasks from the cache.
         const cachedTasksDelta = await this.getTaskDelta();
@@ -132,8 +132,8 @@ export class MsTodoActions {
         // Get sum of all tasks in all lists.
         const countOfAllTasks = cachedTasksDelta.allLists.reduce((acc, list) => acc + list.allTasks.length, 0);
 
-        this.logger.info(`Remote Tasks: ${countOfAllTasks}`);
-        this.logger.info(`Lookups in settings: ${Object.keys(this.plugin.settings.taskIdLookup).length}`);
+        this.logger.debug(`Remote Tasks: ${countOfAllTasks}`);
+        this.logger.debug(`Lookups in settings: ${Object.keys(this.plugin.settings.taskIdLookup).length}`);
 
         // Iterate over all the tasks in internal cache and update the block references.
         let updatedTasks = 0;
@@ -149,12 +149,12 @@ export class MsTodoActions {
             const localTask = localTasks[blockId.toLowerCase()];
 
             if (!list || !cachedTask) {
-                this.logger.info(`Task not found in remote cache: ${blockId} - ${taskId}`);
+                this.logger.debug(`Task not found in remote cache: ${blockId} - ${taskId}`);
                 continue;
             }
 
             if (!localTask) {
-                this.logger.info(`Block not found in local tasks: ${blockId}`);
+                this.logger.debug(`Block not found in local tasks: ${blockId}`);
                 continue;
             }
 
@@ -163,19 +163,19 @@ export class MsTodoActions {
 
             if (!block || !cachedTask || !localTask || !cachedTask.lastModifiedDateTime || !localTask.taskLine) {
                 if (!block) {
-                    this.logger.info(`Issue with finding block in vault for: ${blockId}`);
+                    this.logger.debug(`Issue with finding block in vault for: ${blockId}`);
                 }
                 if (!cachedTask) {
-                    this.logger.info(`Issue with finding remote task for: ${blockId}`);
+                    this.logger.debug(`Issue with finding remote task for: ${blockId}`);
                 }
                 if (!localTask) {
-                    this.logger.info(`Issue with finding local task for: ${blockId}`);
+                    this.logger.debug(`Issue with finding local task for: ${blockId}`);
                 }
                 if (!cachedTask.lastModifiedDateTime) {
-                    this.logger.info(`Issue with finding remote task lastModifiedDateTime for: ${blockId}`);
+                    this.logger.debug(`Issue with finding remote task lastModifiedDateTime for: ${blockId}`);
                 }
                 if (!localTask.taskLine) {
-                    this.logger.info(`Issue with finding local task taskLine for: ${blockId}`, localTask);
+                    this.logger.debug(`Issue with finding local task taskLine for: ${blockId}`, localTask);
                 }
                 continue;
             }
@@ -198,7 +198,7 @@ export class MsTodoActions {
                 continue;
             }
 
-            this.logger.info('Checking Sync Direction', { blockId });
+            this.logger.debug('Checking Sync Direction', { blockId });
 
             // Initialize taskHashLookup if it doesn't exist
             if (!this.settings.taskHashLookup) {
@@ -217,7 +217,7 @@ export class MsTodoActions {
                     // The mtime update is likely due to other changes in the file.
                     // Trust remote state.
                     shouldPushToRemote = false;
-                    this.logger.info(`Local file newer but task content unchanged (hash match). Trusting remote.`, {
+                    this.logger.debug(`Local file newer but task content unchanged (hash match). Trusting remote.`, {
                         blockId,
                     });
                 } else if (!storedHash && localTask.taskLine.includes('- [ ]') && cachedTask.status === 'completed') {
@@ -227,7 +227,7 @@ export class MsTodoActions {
                     // Heuristic: Prefer "Completed" from Remote to avoid undoing work, unless we are sure.
                     // This handles the case where the file was touched but the task wasn't changed.
                     shouldPushToRemote = false;
-                    this.logger.info(
+                    this.logger.debug(
                         `First sync conflict: Local 'Not Started' vs Remote 'Completed'. Preferring Remote.`,
                         { blockId },
                     );
