@@ -1,6 +1,6 @@
 {
     "name": "obsidian-mstodo-sync",
-    "version": "1.0.1",
+    "version": "2026.1.27",
     "description": "This is a MsTodoSync plugin for Obsidian (https://obsidian.md)",
     "main": "main.js",
     "scripts": {
@@ -18,38 +18,44 @@
     "author": "",
     "license": "MIT",
     "devDependencies": {
-        "@eslint/js": "^9.17.0",
-        "@ophidian/build": "^1",
+        "@eslint/js": "^9.39.2",
+        "@ophidian/build": "^1.2.1",
         "@types/jest": "^29.5.14",
-        "@types/luxon": "^3.4.2",
-        "@types/node": "^16.18.122",
-        "@types/node-fetch": "^2.6.12",
-        "@typescript-eslint/eslint-plugin": "^8.19.0",
-        "@typescript-eslint/parser": "^8.19.0",
+        "@types/luxon": "^3.7.1",
+        "@types/node": "^16.18.126",
+        "@types/node-fetch": "^2.6.13",
+        "@typescript-eslint/eslint-plugin": "^8.54.0",
+        "@typescript-eslint/parser": "^8.54.0",
         "builtin-modules": "3.3.0",
-        "esbuild": "^0.14.54",
-        "eslint": "^9.17.0",
-        "eslint-config-prettier": "^8.10.0",
-        "eslint-plugin-import": "^2.31.0",
+        "esbuild": "^0.27.2",
+        "eslint": "^9.39.2",
+        "eslint-config-prettier": "^8.10.2",
+        "eslint-plugin-import": "^2.32.0",
         "eslint-plugin-no-loops": "^0.3.0",
-        "eslint-plugin-prettier": "^5.2.1",
-        "globals": "^15.14.0",
+        "eslint-plugin-prettier": "^5.5.5",
+        "globals": "^15.15.0",
         "jest": "^29.7.0",
-        "luxon": "^3.5.0",
+        "luxon": "^3.7.2",
         "moment": "^2.30.1",
-        "obsidian": "latest",
+        "obsidian": "^1.11.4",
         "prettier": "3.5.1",
-        "ts-jest": "^29.2.5",
+        "ts-jest": "^29.4.6",
         "ts-node": "^10.9.2",
         "tslib": "^2.8.1",
         "typescript": "^4.9.5",
-        "typescript-eslint": "^8.19.0"
+        "typescript-eslint": "^8.54.0"
     },
     "dependencies": {
-        "@azure/msal-common": "^14.16.0",
-        "@azure/msal-node": "^2.16.2",
+        "@azure/msal-common": "^14.16.1",
+        "@azure/msal-node": "^2.16.3",
         "@microsoft/microsoft-graph-client": "^3.0.7",
-        "@microsoft/microsoft-graph-types": "^2.40.0",
+        "@microsoft/microsoft-graph-types": "^2.43.1",
         "eventemitter2": "^6.4.9"
+    },
+    "pnpm": {
+        "overrides": {
+            "esbuild": "^0.27.2",
+            "tmp": "^0.2.4"
+        }
     }
 }

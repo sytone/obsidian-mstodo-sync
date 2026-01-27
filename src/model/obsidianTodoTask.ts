@@ -237,14 +237,9 @@ export class ObsidianTodoTask implements TodoTask {
             contentType: 'text',
         };
 
-        this.linkedResources ||= [];
-
-        this.linkedResources.push({
-            webUrl: this.getRedirectUrl(),
-            applicationName: 'Obsidian Microsoft To Do Sync',
-            externalId: this.blockLink,
-            displayName: `Tracking Block Link: ${this.blockLink}`,
-        });
+        // Note: linkedResources are NOT created here in the constructor.
+        // For NEW tasks, blockLink doesn't exist yet (it's generated in cacheTaskId() after task creation).
+        // Therefore, linkedResources must be created separately after the task is created and blockLink is assigned.
 
         // this.logger.debug(`Created: '${this.title}'`);
     }
@@ -327,9 +322,9 @@ export class ObsidianTodoTask implements TodoTask {
             toDo.checklistItems = this.checklistItems;
         }
 
-        if (this.linkedResources && this.linkedResources.length > 0) {
-            toDo.linkedResources = this.linkedResources;
-        }
+        // Note: linkedResources are intentionally NOT included here for new tasks.
+        // For new tasks, blockLink doesn't exist yet when getTodoTask() is called during creation.
+        // linkedResources are created separately after the task exists and has a valid blockLink.
 
         if (this.dueDateTime) {
             toDo.dueDateTime = this.dueDateTime;

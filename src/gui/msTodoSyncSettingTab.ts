@@ -55,9 +55,11 @@ export interface IMsTodoSyncSettings {
 
     // Private configuration updated by the plugin and not user.
     taskIdLookup: Record<string, string>;
+    taskHashLookup: Record<string, string>;
     taskIdIndex: number;
     hackingEnabled: boolean;
     microsoftToDoApplication_RedirectUriBase: string;
+    autoSyncInterval: number;
 }
 
 export const DEFAULT_SETTINGS: IMsTodoSyncSettings = {
@@ -66,6 +68,7 @@ export const DEFAULT_SETTINGS: IMsTodoSyncSettings = {
         listId: undefined,
     },
     todo_CreateToDoListIfMissing: true,
+    autoSyncInterval: 30,
     diary: {
         folder: '',
         format: '',
@@ -79,8 +82,7 @@ export const DEFAULT_SETTINGS: IMsTodoSyncSettings = {
     displayOptions_TaskStartPrefix: '🛫',
     displayOptions_TaskBodyPrefix: '💡',
     displayOptions_ReplaceAddCreatedAt: false,
-    displayOptions_ReplacementFormat:
-        '- [{{STATUS_SYMBOL}}] {{TASK}}{{IMPORTANCE}}{{TASK_LIST_NAME}}{{DUE_DATE}}{{CREATED_DATE}}',
+    displayOptions_ReplacementFormat: '- [{{STATUS_SYMBOL}}] {{TASK}}',
 
     displayOptions_TaskImportance_Low: '🔽',
     displayOptions_TaskImportance_Normal: '🔼',
@@ -102,6 +104,7 @@ export const DEFAULT_SETTINGS: IMsTodoSyncSettings = {
         },
     },
     taskIdLookup: { '0000ABCD': '0' },
+    taskHashLookup: {},
     taskIdIndex: 0,
     microsoft_AuthenticationClientId: '',
     microsoft_AuthenticationAuthority: '',
@@ -182,6 +185,20 @@ export class MsTodoSyncSettingTab extends PluginSettingTab {
                 toggle.setValue(this.settings.todo_OpenUsingApplicationProtocol).onChange(async (value) => {
                     this.settings.todo_OpenUsingApplicationProtocol = value;
                     await this.plugin.saveSettings();
+                }),
+            );
+
+        new Setting(containerEl)
+            .setName('Auto Sync Interval (minutes)')
+            .setDesc('Set the interval for automatic synchronization in minutes. Set to 0 to disable.')
+            .addText((text) =>
+                text.setValue(this.settings.autoSyncInterval?.toString() ?? '30').onChange(async (value) => {
+                    const interval = parseInt(value);
+                    if (!isNaN(interval) && interval >= 0) {
+                        this.settings.autoSyncInterval = interval;
+                        await this.plugin.saveSettings();
+                        this.plugin.configureAutoSync();
+                    }
                 }),
             );
 

@@ -1,18 +1,20 @@
-name: Release
+name: Nightly Release
 
 on:
   push:
     branches:
-      - master
+      - dev
 
 permissions:
   contents: write
 
 jobs:
-  release:
+  nightly:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -35,20 +37,20 @@ jobs:
         id: date
         run: echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
 
-      - name: Tag Version
+      - name: Update Nightly Tag
         run: |
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
-          git tag -a "${{ steps.date.outputs.date }}" -m "Release ${{ steps.date.outputs.date }}"
-          git push origin "${{ steps.date.outputs.date }}"
-        continue-on-error: true
+          git tag -f nightly
+          git push -f origin nightly
 
-      - name: Create Release
+      - name: Create Nightly Release
         uses: softprops/action-gh-release@v2
         with:
-          name: Release ${{ steps.date.outputs.date }}
-          tag_name: ${{ steps.date.outputs.date }}
-          generate_release_notes: true
+          name: Nightly Build (${{ steps.date.outputs.date }})
+          tag_name: nightly
+          prerelease: true
+          body: "This is an automatic nightly release based on the latest changes in the dev branch. Date: ${{ steps.date.outputs.date }}"
           files: |
             dist/main.js
             dist/styles.css

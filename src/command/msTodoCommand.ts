@@ -4,7 +4,6 @@ import { type TodoTask } from '@microsoft/microsoft-graph-types';
 import { type SettingsManager } from 'src/utils/settingsManager.js';
 import type MsTodoSync from '../main.js';
 import { TasksDeltaCollection, type TodoApi } from '../api/todoApi.js';
-import { type IMsTodoSyncSettings } from '../gui/msTodoSyncSettingTab.js';
 import { t } from '../lib/lang.js';
 import { log, logging } from '../lib/logging.js';
 import { UserNotice } from 'src/lib/userNotice.js';
@@ -59,7 +58,7 @@ export async function getCurrentLinesFromEditor(editor: Editor): Promise<ISelect
         start = editor.getCursor('from');
         end = editor.getCursor('to');
         // Lines = source.split('\n').slice(start.line, end.line + 1);
-        lines = Array.from({ length: end.line + 1 - start.line }, (v, k) => k + start.line);
+        lines = Array.from({ length: end.line + 1 - start.line }, (_v, k) => k + start.line);
     } else {
         start = editor.getCursor();
         end = editor.getCursor();
@@ -148,7 +147,7 @@ export async function postTask(
     todoApi: TodoApi,
     listId: string | undefined,
     editor: Editor,
-    fileName: string | undefined,
+    _fileName: string | undefined,
     plugin: MsTodoSync,
     replace?: boolean,
 ) {
@@ -226,6 +225,24 @@ export async function postTask(
 
                 todo.status = returnedTask.status;
                 await todo.cacheTaskId(returnedTask.id ?? '');
+
+                // Create linkedResource after task is created and blockLink is assigned
+                // (blockLink didn't exist before cacheTaskId() was called)
+                if (todo.blockLink && returnedTask.id) {
+                    try {
+                        await todoApi.createLinkedResource(
+                            listId,
+                            returnedTask.id,
+                            todo.blockLink,
+                            todo.getRedirectUrl(),
+                        );
+                        logger.debug(`Created linkedResource for task: ${returnedTask.id}`);
+                    } catch (error) {
+                        logger.warn(`Failed to create linkedResource: ${error}`);
+                        // Don't fail the whole operation if linkedResource creation fails
+                    }
+                }
+
                 logger.debug(`blockLink: ${todo.blockLink}, taskId: ${todo.id}`, todo);
             }
 
@@ -245,7 +262,7 @@ export async function getTask(
     todoApi: TodoApi,
     listId: string | undefined,
     editor: Editor,
-    fileName: string | undefined,
+    _fileName: string | undefined,
     plugin: MsTodoSync,
 ) {
     const logger = logging.getLogger('mstodo-sync.command.get');
@@ -338,7 +355,7 @@ export async function getTaskDelta(todoApi: TodoApi, listId: string | undefined,
     if (cachedTasksDelta) {
         deltaLink = cachedTasksDelta.deltaLink;
     } else {
-        cachedTasksDelta = new TasksDeltaCollection([], '' ,'', '');
+        cachedTasksDelta = new TasksDeltaCollection([], '', '', '');
     }
 
     const returnedTask = await todoApi.getTasksDelta(listId, deltaLink);
@@ -412,7 +429,7 @@ export async function postTaskAndChildren(
     todoApi: TodoApi,
     listId: string | undefined,
     editor: Editor,
-    fileName: string | undefined,
+    _fileName: string | undefined,
     plugin: MsTodoSync,
     push = true,
 ) {
@@ -445,7 +462,7 @@ export async function postTaskAndChildren(
     logger.debug(`endLine: ${endLine}`);
 
     // Scan lines below task for sub tasks and body.
-    for (const [index, line] of lines.slice(1, endLine).entries()) {
+    for (const [_index, line] of lines.slice(1, endLine).entries()) {
         // Logger.debug(`processing line: ${index} -- ${line}`);
 
         if (line.startsWith('  - [')) {
@@ -480,7 +497,8 @@ export async function postTaskAndChildren(
             todo.status = returnedTask.status;
             todo.body = returnedTask.body;
         } else {
-            returnedTask = await todoApi.getTask(listId, todo.id);
+            // Pull: Load task WITH details (checklistItems, linkedResources)
+            returnedTask = await todoApi.getTask(listId, todo.id, true);
             if (returnedTask) {
                 todo.checklistItems = returnedTask.checklistItems;
                 todo.status = returnedTask.status;
@@ -497,6 +515,19 @@ export async function postTaskAndChildren(
 
         todo.status = returnedTask.status;
         await todo.cacheTaskId(returnedTask.id ?? '');
+
+        // Create linkedResource after task is created and blockLink is assigned
+        // (blockLink didn't exist before cacheTaskId() was called)
+        if (todo.blockLink && returnedTask.id) {
+            try {
+                await todoApi.createLinkedResource(listId, returnedTask.id, todo.blockLink, todo.getRedirectUrl());
+                logger.debug(`Created linkedResource for task: ${returnedTask.id}`);
+            } catch (error) {
+                logger.warn(`Failed to create linkedResource: ${error}`);
+                // Don't fail the whole operation if linkedResource creation fails
+            }
+        }
+
         logger.debug(`blockLink: ${todo.blockLink}, taskId: ${todo.id}`, todo);
     }
 
@@ -540,7 +571,7 @@ export async function getAllTasksInList(
     await getTaskDelta(todoApi, listId, plugin);
     const cachedTasksDelta = await getDeltaCache(plugin);
 
-    cachedTasksDelta?.allTasks.sort((a, b) => (a.status === 'completed' ? 1 : -1));
+    cachedTasksDelta?.allTasks.sort((a, _b) => (a.status === 'completed' ? 1 : -1));
 
     const lines = cachedTasksDelta?.allTasks
         ?.filter((task) => task.status !== 'completed')
@@ -569,7 +600,7 @@ export async function getAllTasksInList(
             if (task.body?.content && withBody) {
                 // If the body has multiple lines then indent slightly on a new line.
                 const bodyLines = task.body.content.split('\r\n');
-                const newBody = bodyLines.map((line, index) => `  ${stripHtml(line).trimEnd()}`);
+                const newBody = bodyLines.map((line, _index) => `  ${stripHtml(line).trimEnd()}`);
                 return `- [${done}] ${task.title}  ${createDate} ${blockId}\n${newBody.join('\n')}`.trimEnd();
             }
 
@@ -618,42 +649,119 @@ function stripHtml(html: string): string {
     return html.replaceAll(/<[^>]*>/g, '');
 }
 
-export async function createTodayTasks(todoApi: TodoApi, settings: IMsTodoSyncSettings, editor?: Editor) {
-    userNotice.showMessage('Getting Microsoft To Do tasks for today', 3000);
+/**
+ * Inserts tasks from Microsoft To Do into the editor.
+ *
+ * @param todoApi - The TodoApi instance
+ * @param plugin - The plugin instance (needed for settings and caching)
+ * @param editor - Optional editor to insert into
+ * @param filterListName - Optional: Only insert tasks from this specific list. If undefined, uses configured list or all lists.
+ */
+export async function createTodayTasks(todoApi: TodoApi, plugin: MsTodoSync, editor?: Editor, filterListName?: string) {
+    const settings = plugin.settingsManager.settings;
+    userNotice.showMessage('Getting Microsoft To Do tasks...', 3000);
     const now = globalThis.moment();
-    const pattern = `status ne 'completed' or completedDateTime/dateTime ge '${now.format('yyyy-MM-DD')}'`;
-    const taskLists = await todoApi.getLists(pattern);
-    if (!taskLists || taskLists.length === 0) {
+    const pattern = `status ne 'completed' or completedDateTime/dateTime ge '${now.format('YYYY-MM-DD')}'`;
+
+    // Fetch lists WITHOUT tasks first to avoid 429 (Too Many Requests)
+    // getLists() without pattern only fetches list metadata
+    const allLists = await todoApi.getLists();
+
+    if (!allLists || allLists.length === 0) {
         userNotice.showMessage('Task list is empty');
         return;
     }
 
-    const segments = taskLists
-        .map((taskList) => {
-            if (!taskList.tasks || taskList.tasks.length === 0) {
-                return;
-            }
+    // Determine which list(s) to include
+    // If filterListName is provided (string), use it.
+    // If it is empty string "", it means "All Lists".
+    // If it is undefined/null, fallback to settings default.
+    let targetListName = filterListName;
+    if (targetListName === undefined || targetListName === null) {
+        targetListName = settings.todoListSync.listName;
+    }
 
-            taskList.tasks.sort((a, b) => (a.status == 'completed' ? 1 : -1));
-            const lines = taskList.tasks?.map((task) => {
+    // If targetListName is "", it means NO filter (All Lists)
+    const useFilter = targetListName !== '';
+
+    const filteredLists = allLists.filter((taskList) => {
+        // If a target list is specified, only include that list
+        if (useFilter) {
+            return taskList.displayName === targetListName;
+        }
+        // Otherwise include all lists
+        return true;
+    });
+
+    const segmentPromises = filteredLists.map(async (taskList) => {
+        // Fetch tasks for this specific list
+        // We do this inside the map/loop now, instead of fetching ALL tasks for ALL lists at start
+        try {
+            taskList.tasks = await todoApi.getListTasks(taskList.id, pattern);
+        } catch (e) {
+            console.error(`Error fetching tasks for list ${taskList.displayName}`, e);
+            taskList.tasks = [];
+        }
+
+        if (!taskList.tasks || taskList.tasks.length === 0) {
+            return;
+        }
+
+        taskList.tasks.sort((a, _b) => (a.status === 'completed' ? 1 : -1));
+        const lines = await Promise.all(
+            taskList.tasks?.map(async (task) => {
                 const formattedCreateDate = globalThis
                     .moment(task.createdDateTime)
                     .format(settings.displayOptions_DateFormat);
-                const done = task.status == 'completed' ? 'x' : ' ';
+                const done = task.status === 'completed' ? 'x' : ' ';
                 const createDate =
-                    formattedCreateDate == now.format(settings.displayOptions_DateFormat)
+                    formattedCreateDate === now.format(settings.displayOptions_DateFormat)
                         ? ''
                         : `${settings.displayOptions_TaskCreatedPrefix}[[${formattedCreateDate}]]`;
                 const body = task.body?.content ? `${settings.displayOptions_TaskBodyPrefix}${task.body.content}` : '';
 
-                return `- [${done}] ${task.title}  ${createDate}  ${body}`;
-            });
-            return `**${taskList.displayName}**
+                // Generate subtasks
+                let subtasks = '';
+                if (task.checklistItems && task.checklistItems.length > 0) {
+                    task.checklistItems.sort(
+                        (a, b) =>
+                            new Date(a.createdDateTime as string).getTime() -
+                            new Date(b.createdDateTime as string).getTime(),
+                    );
+                    subtasks = task.checklistItems
+                        .map((item) => {
+                            const subDone = item.isChecked ? 'x' : ' ';
+                            return `\n  - [${subDone}] ${item.displayName}`;
+                        })
+                        .join('');
+                }
+
+                // Generate block ID for tracking (enables two-way sync)
+                let blockId = '';
+                // Check if task is already tracked
+                for (const key in settings.taskIdLookup) {
+                    if (Object.hasOwn(settings.taskIdLookup, key) && settings.taskIdLookup[key] === task.id) {
+                        blockId = `^${key}`;
+                        break;
+                    }
+                }
+                // If not tracked, create new tracking ID
+                if (blockId === '' && task.id) {
+                    const newId = await cacheTaskId(task.id, plugin.settingsManager);
+                    blockId = `^${newId}`;
+                }
+
+                return `- [${done}] ${task.title}  ${createDate} ${blockId} ${body}${subtasks}`.trimEnd();
+            }) ?? [],
+        );
+
+        return `**${taskList.displayName}**
 ${lines?.join('\n')}
 `;
-        })
-        .filter((s) => s != undefined)
-        .join('\n\n');
+    });
+
+    const segmentsArray = await Promise.all(segmentPromises);
+    const segments = segmentsArray.filter((s) => s !== undefined).join('\n\n');
 
     if (editor) {
         editor.replaceSelection(segments);

@@ -55,34 +55,48 @@ export class TodoApi {
     /**
      * Retrieves the lists of tasks from the Todo API.
      *
-     * @param searchPattern - An optional search pattern to filter tasks within the lists.
-     * @returns A promise that resolves to an array of `TodoTaskList` objects, each containing their respective tasks, or `undefined` if no lists are found.
+     * @param filterPattern - An optional OData filter pattern to filter tasks within the lists.
+     *                        If provided, tasks matching the filter will be loaded for each list.
+     *                        If not provided, only lists without tasks are returned.
+     * @returns A promise that resolves to an array of `TodoTaskList` objects, each optionally containing their respective tasks, or `undefined` if no lists are found.
      */
-    async getLists(): Promise<TodoTaskList[] | undefined> {
+    async getLists(filterPattern?: string): Promise<TodoTaskList[] | undefined> {
         const endpoint = '/me/todo/lists';
         const todoLists = (await this.client.api(endpoint).get()).value as TodoTaskList[];
 
-        return todoLists;
-        // return Promise.all(
-        //     todoLists.map(async (taskList) => {
-        //         try {
-        //             const containedTasks = await this.getListTasks(taskList.id, searchPattern);
-        //             return {
-        //                 ...taskList,
-        //                 tasks: containedTasks,
-        //             };
-        //         } catch (error) {
-        //             this.logger.error('Failed to get tasks for list', taskList.displayName);
-        //             if (error instanceof Error) {
-        //                 this.logger.error(error.message);
-        //                 this.logger.error(error.stack ?? 'No stack trace available');
-        //                 throw new Error(error.message);
-        //             }
+        // If no filter pattern is provided, return lists without tasks
+        if (!filterPattern) {
+            return todoLists;
+        }
 
-        //             throw new Error('Unknown issue getting Lists');
-        //         }
-        //     }),
-        // );
+        // Load tasks for each list with the provided filter
+        return Promise.all(
+            todoLists.map(async (taskList) => {
+                try {
+                    const containedTasks = await this.getListTasks(taskList.id, filterPattern);
+                    return {
+                        ...taskList,
+                        tasks: containedTasks,
+                    };
+                } catch (error) {
+                    this.logger.error('Failed to get tasks for list', taskList.displayName);
+                    if (error instanceof Error) {
+                        this.logger.error(error.message);
+                        this.logger.error(error.stack ?? 'No stack trace available');
+                        // Return list without tasks instead of failing completely
+                        return {
+                            ...taskList,
+                            tasks: [],
+                        };
+                    }
+
+                    return {
+                        ...taskList,
+                        tasks: [],
+                    };
+                }
+            }),
+        );
     }
 
     /**
@@ -144,32 +158,30 @@ export class TodoApi {
      * Retrieves a list of tasks from a specified to-do list.
      *
      * @param listId - The ID of the to-do list. If undefined, the function will return immediately.
-     * @param searchText - Optional search text to filter the tasks. If not provided, the function will return immediately.
-     * @returns A promise that resolves to an array of `TodoTask` objects, or undefined if the listId or searchText is not provided, or if an error occurs.
+     * @param filterText - Optional OData filter text to filter the tasks. If not provided, all tasks are returned.
+     * @returns A promise that resolves to an array of `TodoTask` objects, or undefined if the listId is not provided, or if an error occurs.
      */
-    async getListTasks(listId: string | undefined, searchText?: string): Promise<TodoTask[] | undefined> {
+    async getListTasks(listId: string | undefined, filterText?: string): Promise<TodoTask[] | undefined> {
         if (!listId) {
             return;
         }
 
         const endpoint = `/me/todo/lists/${listId}/tasks`;
-        if (!searchText) {
-            return;
-        }
 
-        const res = await this.client
-            .api(endpoint)
-            .filter(searchText)
-            .get()
-            .catch((error) => {
-                this.logger.error('Failed to get tasks for list', error);
-                throw new Error(t('Notice_UnableToAcquireTaskFromConfiguredList'));
-            });
-        if (!res) {
-            return;
+        try {
+            let apiRequest = this.client.api(endpoint).expand('checklistItems');
+            if (filterText) {
+                apiRequest = apiRequest.filter(filterText);
+            }
+            const res = await apiRequest.get();
+            if (!res) {
+                return;
+            }
+            return res.value as TodoTask[];
+        } catch (error) {
+            this.logger.error('Failed to get tasks for list', error);
+            throw new Error(t('Notice_UnableToAcquireTaskFromConfiguredList'));
         }
-
-        return res.value as TodoTask[];
     }
 
     /**
@@ -177,14 +189,18 @@ export class TodoApi {
      *
      * @param listId - The ID of the to-do list containing the task.
      * @param taskId - The ID of the task to retrieve.
+     * @param includeDetails - If true, includes checklistItems and linkedResources via $expand.
      * @returns A promise that resolves to the `TodoTask` object if found, or `undefined` if not found.
      */
-    async getTask(listId: string, taskId: string): Promise<TodoTask | undefined> {
+    async getTask(listId: string, taskId: string, includeDetails = false): Promise<TodoTask | undefined> {
         const endpoint = `/me/todo/lists/${listId}/tasks/${taskId}`;
-        return (await this.client
-            .api(endpoint)
-            .middlewareOptions([new RetryHandlerOptions(3, 3)])
-            .get()) as TodoTask;
+        let apiRequest = this.client.api(endpoint).middlewareOptions([new RetryHandlerOptions(3, 3)]);
+
+        if (includeDetails) {
+            apiRequest = apiRequest.expand('checklistItems,linkedResources');
+        }
+
+        return (await apiRequest.get()) as TodoTask;
     }
 
     /**
@@ -258,6 +274,19 @@ export class TodoApi {
         return this.client.api(endpoint).patch(toDo);
     }
 
+    /**
+     * Checks if a URL is valid for Microsoft Graph API (not localhost/local IP)
+     */
+    private isValidWebUrl(url: string): boolean {
+        if (!url || url.trim() === '') return false;
+        // Reject localhost and local IPs
+        if (url.includes('localhost') || url.includes('127.0.0.1') || /192\.168\.\d+\.\d+/.test(url)) {
+            return false;
+        }
+        // Must start with https:// or a valid URI scheme like obsidian://
+        return url.startsWith('https://') || url.includes('://');
+    }
+
     async createLinkedResource(
         listId: string | undefined,
         taskId: string,
@@ -266,12 +295,17 @@ export class TodoApi {
     ): Promise<void> {
         const endpoint = `/me/todo/lists/${listId}/tasks/${taskId}/linkedResources`;
 
-        const updatedLinkedResource = {
-            webUrl: webUrl,
+        // webUrl is optional in Microsoft Graph API - omit if invalid
+        const updatedLinkedResource: Record<string, string> = {
             applicationName: 'Obsidian Microsoft To Do Sync',
             externalId: blockId,
             displayName: `Tracking Block Link: ${blockId}`,
         };
+
+        if (this.isValidWebUrl(webUrl)) {
+            updatedLinkedResource.webUrl = webUrl;
+        }
+
         return this.client.api(endpoint).post(updatedLinkedResource);
     }
 
@@ -284,12 +318,16 @@ export class TodoApi {
     ): Promise<void> {
         const endpoint = `/me/todo/lists/${listId}/tasks/${taskId}/linkedResources/${linkedResourceId}`;
 
-        const updatedLinkedResource = {
-            webUrl: webUrl,
+        // webUrl is optional in Microsoft Graph API - omit if invalid
+        const updatedLinkedResource: Record<string, string> = {
             applicationName: 'Obsidian Microsoft To Do Sync',
             externalId: blockId,
             displayName: `Tracking Block Link: ${blockId}`,
         };
+
+        if (this.isValidWebUrl(webUrl)) {
+            updatedLinkedResource.webUrl = webUrl;
+        }
 
         const response = await this.client.api(endpoint).update(updatedLinkedResource);
         return response;

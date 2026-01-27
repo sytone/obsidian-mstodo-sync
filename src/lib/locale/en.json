@@ -21,6 +21,7 @@
     "EditorMenu_OpenToDo": "Open To Do",
     "EditorMenu_SyncToTodo": "-> Push to Microsoft To Do",
     "EditorMenu_SyncToTodoAndReplace": "Sync Task (Push)",
+    "EditorMenu_SyncToTodoAndReplace_Select": "Sync Task to specific list...",
     "EditorMenu_FetchFromRemote": "Sync Task (Pull)",
     "Enter": "Enter",
     "Friday": "Friday",

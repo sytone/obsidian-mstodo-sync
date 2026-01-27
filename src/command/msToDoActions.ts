@@ -23,6 +23,19 @@ export class MsTodoActions {
     private plugin: MsTodoSync;
     private deltaCachePath: string;
 
+    private cyrb53(str: string, seed = 0): string {
+        let h1 = 0xdeadbeef ^ seed,
+            h2 = 0x41c6ce57 ^ seed;
+        for (let i = 0, ch; i < str.length; i++) {
+            ch = str.charCodeAt(i);
+            h1 = Math.imul(h1 ^ ch, 2654435761);
+            h2 = Math.imul(h2 ^ ch, 1597334677);
+        }
+        h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+        h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+        return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
+    }
+
     constructor(
         plugin: MsTodoSync,
         private settingsManager: SettingsManager,
@@ -176,16 +189,62 @@ export class MsTodoActions {
 
             // If all the properties match then no update will occur.
             if (internalTask.equals(cachedTask)) {
+                // Update hash if it's missing (migration or missed update)
+                const currentHash = this.cyrb53(taskContent);
+                if (this.settings.taskHashLookup && this.settings.taskHashLookup[blockId] !== currentHash) {
+                    this.settings.taskHashLookup[blockId] = currentHash;
+                    await this.settingsManager.saveSettings();
+                }
                 continue;
             }
 
             this.logger.info('Checking Sync Direction', { blockId });
 
+            // Initialize taskHashLookup if it doesn't exist
+            if (!this.settings.taskHashLookup) {
+                this.settings.taskHashLookup = {};
+            }
+
+            const currentHash = this.cyrb53(taskContent);
+            const storedHash = this.settings.taskHashLookup[blockId];
+
+            let shouldPushToRemote = false;
+
+            if (localTaskNewer) {
+                // File is newer. Check if task content actually changed since last sync.
+                if (storedHash && currentHash === storedHash) {
+                    // Task content hasn't changed since last sync.
+                    // The mtime update is likely due to other changes in the file.
+                    // Trust remote state.
+                    shouldPushToRemote = false;
+                    this.logger.info(`Local file newer but task content unchanged (hash match). Trusting remote.`, {
+                        blockId,
+                    });
+                } else if (!storedHash && localTask.taskLine.includes('- [ ]') && cachedTask.status === 'completed') {
+                    // First sync with new logic (no hash history).
+                    // Conflict: Local is 'Not Started', Remote is 'Completed'.
+                    // Since we have no history, we don't know if the user unchecked it locally or completed it remotely.
+                    // Heuristic: Prefer "Completed" from Remote to avoid undoing work, unless we are sure.
+                    // This handles the case where the file was touched but the task wasn't changed.
+                    shouldPushToRemote = false;
+                    this.logger.info(
+                        `First sync conflict: Local 'Not Started' vs Remote 'Completed'. Preferring Remote.`,
+                        { blockId },
+                    );
+                } else {
+                    // Content changed (or no hash and not the specific conflict above). Push to remote.
+                    shouldPushToRemote = true;
+                }
+            } else {
+                // Remote is newer.
+                shouldPushToRemote = false;
+            }
+
             // Now we need to check the following:
             // If the local task is more recent than the remote task then update the remote task.
             // If the remote task is more recent than the local task then update the local task.
             // If the remote task properties and the local task properties are the same then no update will occur.
-            if (localTaskNewer) {
+            if (shouldPushToRemote) {
                 // Update the remote task with the local task.
                 this.logger.info(`Local Newer: ${blockId}`, { internalTask, cachedTask, localTask, taskContent });
 
@@ -196,6 +255,10 @@ export class MsTodoActions {
                     internalTask.getTodoTask(),
                 );
                 this.logger.debug(`Updated Task last mod: ${returnedTask.lastModifiedDateTime}`);
+
+                // Update hash to reflect what we just pushed
+                this.settings.taskHashLookup[blockId] = currentHash;
+                await this.settingsManager.saveSettings();
 
                 updatedTasks++;
             } else {
@@ -214,6 +277,11 @@ export class MsTodoActions {
                         this.logger.debug(`Updating Task ID: ${blockId}`, newPageContent);
                         return newPageContent;
                     });
+
+                    // Update hash to reflect the new local content
+                    this.settings.taskHashLookup[blockId] = this.cyrb53(updatedTask);
+                    await this.settingsManager.saveSettings();
+
                     updatedTasks++;
                 }
             }
@@ -309,6 +377,9 @@ export class MsTodoActions {
                     this.logger.info(`Block not found in metadata cache: ${blockId}`);
                     // Clean up the block id from the settings.
                     delete this.settings.taskIdLookup[blockId];
+                    if (this.settings.taskHashLookup) {
+                        delete this.settings.taskHashLookup[blockId];
+                    }
                     await this.settingsManager.saveSettings();
                 }
             }
@@ -466,10 +537,11 @@ export class MsTodoActions {
      * @param fileName - The name of the file being edited. If undefined, an empty string will be used.
      * @param plugin - The MsTodoSync plugin instance.
      * @param replace - Optional. If true, the original tasks in the editor will be replaced with the new tasks. Defaults to false.
+     * @param targetListId - Optional. The specific list ID to push the task to. Overrides settings if provided.
      *
      * @returns A promise that resolves when the tasks have been posted and the file has been modified.
      */
-    public async postTask(editor: Editor, replace?: boolean) {
+    public async postTask(editor: Editor, replace?: boolean, targetListId?: string) {
         const activeFile = this.plugin.app.workspace.getActiveFile();
         if (activeFile === null) {
             return;
@@ -548,11 +620,22 @@ export class MsTodoActions {
                 } else {
                     this.logger.info(`Creating Task: ${todo.title}`);
                     // Check for a list id in the settings.
-                    let listId = this.settingsManager.settings.todoListSync.listId;
+                    let listId = targetListId ?? this.settingsManager.settings.todoListSync.listId;
                     if (todo.listName) {
                         // Lookup the list id from the cache using the list name.
                         const list = cachedTasksDelta.allLists.find((l) => l.name === todo.listName);
-                        listId = list?.listId;
+                        // If we found a list by name in the task, prioritize it over targetListId unless targetListId was explicitly chosen?
+                        // Actually, if todo.listName exists (e.g. from text "+Work"), we should probably honor it.
+                        // However, if the user explicitly chose a list from the menu, maybe that should win?
+                        // Let's assume explicit targetListId wins if provided, but if not, fallback to task-specific list name, then default setting.
+                        // But wait, if user selects "Work" from menu, they expect it to go to "Work".
+                        // If the task text has "+Personal", what should happen?
+                        // Usually explicit menu choice overrides.
+
+                        if (!targetListId) {
+                            listId = list?.listId;
+                        }
+
                         if (!listId) {
                             if (this.settingsManager.settings.todo_CreateToDoListIfMissing) {
                                 // Make the list.
@@ -569,6 +652,14 @@ export class MsTodoActions {
                                 return;
                             }
                         }
+                    } else if (targetListId) {
+                        // User selected a list explicitly, so we should set the listName on the todo object
+                        // so that it gets formatted correctly in the replacement text (e.g. adding "+ListName")
+                        const list = cachedTasksDelta.allLists.find((l) => l.listId === targetListId);
+                        if (list) {
+                            todo.listName = list.name;
+                            todo.listId = list.listId;
+                        }
                     }
 
                     this.logger.debug(`Creating Task: ${listId}`);
@@ -577,17 +668,50 @@ export class MsTodoActions {
 
                     todo.status = returnedTask.status;
                     await todo.cacheTaskId(returnedTask.id ?? '');
+
+                    // Create linkedResource after task is created and blockLink is assigned
+                    // (blockLink didn't exist before cacheTaskId() was called)
+                    if (todo.blockLink && returnedTask.id) {
+                        try {
+                            await this.todoApi.createLinkedResource(
+                                listId,
+                                returnedTask.id,
+                                todo.blockLink,
+                                todo.getRedirectUrl(),
+                            );
+                            this.logger.debug(`Created linkedResource for task: ${returnedTask.id}`);
+                        } catch (error) {
+                            this.logger.warn(`Failed to create linkedResource: ${error}`);
+                            // Don't fail the whole operation if linkedResource creation fails
+                        }
+                    }
+
                     this.logger.debug(`blockLink: ${todo.blockLink}, taskId: ${todo.id}`, todo);
                 }
 
                 // If false there will be a orphaned block id for this task.
                 if (replace) {
-                    return todo.getMarkdownTask(true);
+                    const newLine = todo.getMarkdownTask(true);
+                    if (todo.hasBlockLink && todo.blockLink) {
+                        if (!this.settings.taskHashLookup) {
+                            this.settings.taskHashLookup = {};
+                        }
+                        this.settings.taskHashLookup[todo.blockLink] = this.cyrb53(newLine);
+                        // We need to save settings, but we are inside a map.
+                        // We can't await easily or shouldn't await in loop if performance matters,
+                        // but here it's user action so it's fine.
+                        // However, map is synchronous but we can't await inside strictly without Promise.all which we have.
+                        // Ideally we batch save.
+                    }
+                    return newLine;
                 }
 
                 return line;
             }),
         );
+
+        // Save settings after the map is done to persist hashes
+        await this.settingsManager.saveSettings();
 
         // Update the entire page.
         await this.plugin.app.vault.modify(activeFile, modifiedPage.join('\n'));
@@ -638,7 +762,15 @@ export class MsTodoActions {
                         todo.updateFromTodoTask(returnedTask);
                         this.logger.debug(`blockLink: ${todo.blockLink}, taskId: ${todo.id}`);
                         this.logger.debug(`updated: ${returnedTask.id}`);
-                        return todo.getMarkdownTask(true);
+                        const newLine = todo.getMarkdownTask(true);
+
+                        if (todo.hasBlockLink && todo.blockLink) {
+                            if (!this.settings.taskHashLookup) {
+                                this.settings.taskHashLookup = {};
+                            }
+                            this.settings.taskHashLookup[todo.blockLink] = this.cyrb53(newLine);
+                        }
+                        return newLine;
                     }
                 }
 
@@ -646,6 +778,7 @@ export class MsTodoActions {
             }),
         );
 
+        await this.settingsManager.saveSettings();
         await this.plugin.app.vault.modify(activeFile, modifiedPage.join('\n'));
     }
 
@@ -740,7 +873,17 @@ export class MsTodoActions {
 
             let returnedTask = new TasksDeltaCollection([], '', list.listId, list.name);
             if (!skipRemoteCheck) {
-                returnedTask = await this.todoApi.getTasksDelta(list.listId, deltaLink);
+                try {
+                    returnedTask = await this.todoApi.getTasksDelta(list.listId, deltaLink);
+                } catch (error) {
+                    this.logger.warn(`Failed to get delta for list ${list.name}. Retrying with full sync...`, error);
+                    try {
+                        returnedTask = await this.todoApi.getTasksDelta(list.listId, '');
+                    } catch (retryError) {
+                        this.logger.error(`Failed to get full sync for list ${list.name}`, retryError);
+                        continue;
+                    }
+                }
             }
 
             if (list.allTasks.length > 0) {

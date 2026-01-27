@@ -8,6 +8,7 @@ import { SettingsManager } from './utils/settingsManager.js';
 import { MicrosoftClientProvider } from './api/microsoftClientProvider.js';
 import { type IUserNotice, UserNotice } from './lib/userNotice.js';
 import { MsTodoActions } from './command/msToDoActions.js';
+import { ListSelectorModal } from './gui/listSelectorModal.js';
 
 export default class MsTodoSync extends Plugin {
     settings!: IMsTodoSyncSettings;
@@ -16,6 +17,9 @@ export default class MsTodoSync extends Plugin {
     public settingsManager!: SettingsManager;
     public microsoftClientProvider!: MicrosoftClientProvider;
     public msToDoActions!: MsTodoActions;
+    private syncDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+    private autoSyncIntervalId: ReturnType<typeof setInterval> | null = null;
+    private lastSyncedFile: string | null = null;
 
     // Pulls the meta data for the a page to help with list processing.
     getPageMetadata(path: string): CachedMetadata | undefined {
@@ -59,18 +63,120 @@ export default class MsTodoSync extends Plugin {
         this.todoApi = new TodoApi(this.microsoftClientProvider);
         this.settingsManager = new SettingsManager(this);
         this.msToDoActions = new MsTodoActions(this, this.settingsManager, this.todoApi);
+
+        // Configure auto-sync
+        this.configureAutoSync();
+
+        // B) Sync on plugin start (with delay to ensure everything is initialized)
+        this.app.workspace.onLayoutReady(() => {
+            // Wait a bit after layout is ready to avoid blocking startup
+            setTimeout(() => {
+                log('info', 'Running initial sync on plugin start...');
+                this.msToDoActions.syncVault().catch((error) => {
+                    log('error', 'Initial sync failed:', error);
+                });
+            }, 5000); // 5 second delay after startup
+        });
+
+        // C) Sync when a file with tracked tasks is saved
+        this.registerEvent(
+            this.app.vault.on('modify', (file) => {
+                this.handleFileSave(file.path);
+            }),
+        );
+    }
+
+    /**
+     * Handles file save events - triggers sync if file contains tracked tasks.
+     * Uses debouncing to avoid syncing too frequently.
+     */
+    private handleFileSave(filePath: string) {
+        // Only process markdown files
+        if (!filePath.endsWith('.md')) {
+            return;
+        }
+
+        // Debounce: wait 3 seconds after last save before syncing
+        if (this.syncDebounceTimer) {
+            clearTimeout(this.syncDebounceTimer);
+        }
+
+        this.syncDebounceTimer = setTimeout(async () => {
+            try {
+                // Read file content to check for task block IDs
+                const content = await this.app.vault.adapter.read(filePath);
+                const hasTrackedTasks = /\^MSTD[A-Za-z\d]+/.test(content);
+
+                if (hasTrackedTasks && filePath !== this.lastSyncedFile) {
+                    log('info', `File with tracked tasks saved: ${filePath}, triggering sync...`);
+                    this.lastSyncedFile = filePath;
+                    await this.msToDoActions.syncVault();
+                    // Reset after sync completes to allow future syncs
+                    setTimeout(() => {
+                        this.lastSyncedFile = null;
+                    }, 10000); // Prevent re-sync of same file for 10 seconds
+                }
+            } catch (error) {
+                log('error', 'Error checking file for tracked tasks:', error);
+            }
+        }, 3000); // 3 second debounce
     }
 
     async onunload() {
         log('info', `unloading plugin "${this.manifest.name}" v${this.manifest.version}`);
+        // Clean up debounce timer
+        if (this.syncDebounceTimer) {
+            clearTimeout(this.syncDebounceTimer);
+        }
+        if (this.autoSyncIntervalId) {
+            clearInterval(this.autoSyncIntervalId);
+        }
     }
 
     async loadSettings() {
         this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+
+        // Migration: Update replacement format if it matches the old default or contains unwanted placeholders
+        const oldDefaultFormat =
+            '- [{{STATUS_SYMBOL}}] {{TASK}}{{IMPORTANCE}}{{TASK_LIST_NAME}}{{DUE_DATE}}{{CREATED_DATE}}';
+        const currentFormat = this.settings.displayOptions_ReplacementFormat;
+
+        if (
+            currentFormat === oldDefaultFormat ||
+            currentFormat.includes('{{TASK_LIST_NAME}}') ||
+            currentFormat.includes('{{CREATED_DATE}}')
+        ) {
+            log('info', 'Migrating replacement format settings to new default.');
+            this.settings.displayOptions_ReplacementFormat = DEFAULT_SETTINGS.displayOptions_ReplacementFormat;
+            await this.saveSettings();
+        }
     }
 
     async saveSettings() {
         await this.saveData(this.settings);
+    }
+
+    public configureAutoSync() {
+        if (this.autoSyncIntervalId) {
+            clearInterval(this.autoSyncIntervalId);
+            this.autoSyncIntervalId = null;
+        }
+
+        const intervalMinutes = this.settings.autoSyncInterval;
+        if (intervalMinutes && intervalMinutes > 0) {
+            log('info', `Configuring auto-sync every ${intervalMinutes} minutes`);
+            this.autoSyncIntervalId = setInterval(
+                () => {
+                    log('info', 'Running auto-sync...');
+                    this.msToDoActions.syncVault().catch((error) => {
+                        log('error', 'Auto-sync failed:', error);
+                    });
+                },
+                intervalMinutes * 60 * 1000,
+            );
+        } else {
+            log('info', 'Auto-sync disabled');
+        }
     }
 
     /**
@@ -119,7 +225,25 @@ export default class MsTodoSync extends Plugin {
             id: 'add-microsoft-todo',
             name: t('CommandName_InsertSummary'),
             editorCallback: async (editor: Editor, _view: MarkdownView | MarkdownFileInfo) => {
-                await createTodayTasks(this.todoApi, this.settings, editor);
+                // Show list selector modal
+                const lists = await this.todoApi.getLists();
+                if (!lists || lists.length === 0) {
+                    this.userNotice.showMessage('No lists found');
+                    return;
+                }
+
+                const modal = new ListSelectorModal(this.app, lists);
+                const result = await modal.openAndGetValue();
+
+                if (result.cancelled) {
+                    return;
+                }
+
+                // result.list is null for "All Lists", or a specific list
+                // If "All Lists" is selected (null), pass empty string to signify "All Lists" explicitely
+                // If it were undefined, createTodayTasks would fall back to settings default list
+                const filterListName = result.list?.displayName ?? '';
+                await createTodayTasks(this.todoApi, this, editor, filterListName);
             },
         });
 
@@ -170,6 +294,28 @@ export default class MsTodoSync extends Plugin {
                             await this.pushTaskToMsTodoAndUpdatePage(editor);
                         });
                     });
+
+                    microsoftToDoSubmenu.addItem((item) => {
+                        item.setTitle(t('EditorMenu_SyncToTodoAndReplace_Select')).onClick(async () => {
+                            const lists = await this.todoApi.getLists();
+                            if (!lists || lists.length === 0) {
+                                this.userNotice.showMessage('No lists found');
+                                return;
+                            }
+
+                            // Do not allow "All Lists" selection for pushing a task, must pick one
+                            const modal = new ListSelectorModal(this.app, lists, false);
+                            const result = await modal.openAndGetValue();
+
+                            if (result.cancelled || !result.list) {
+                                return;
+                            }
+
+                            // Pass the selected list ID to the post function
+                            await this.msToDoActions.postTask(editor, true, result.list.id);
+                        });
+                    });
+
                     microsoftToDoSubmenu.addItem((item) => {
                         item.setTitle(t('EditorMenu_FetchFromRemote')).onClick(async () => {
                             await getTask(
