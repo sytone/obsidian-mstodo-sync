@@ -646,7 +646,9 @@ async function cacheTaskId(id: string, settingsManager: SettingsManager): Promis
 }
 
 function stripHtml(html: string): string {
-    return html.replaceAll(/<[^>]*>/g, '');
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    return doc.body.textContent || '';
 }
 
 /**

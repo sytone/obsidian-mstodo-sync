@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Security
 - Updated `esbuild` and other dependencies to fix security vulnerabilities reported by `pnpm audit`.
+- **Sanitization**: Replaced regex-based HTML stripping with `DOMParser` to address CodeQL security warnings regarding potential XSS vulnerabilities.
 
 ### Added
 - **List Selector Modal**: Choose which To Do list to insert tasks from (or "All Lists")
