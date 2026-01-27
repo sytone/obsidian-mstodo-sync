@@ -35,7 +35,7 @@ export default class MsTodoSync extends Plugin {
         await this.loadSettings();
 
         try {
-            this.microsoftClientProvider = new MicrosoftClientProvider(this.app);
+            this.microsoftClientProvider = new MicrosoftClientProvider(this.app, this.manifest.dir);
             if (this.settings.microsoft_AuthenticationClientId !== '') {
                 this.microsoftClientProvider.clientId = this.settings.microsoft_AuthenticationClientId;
             }

@@ -48,9 +48,9 @@ export class MicrosoftClientProvider {
     private readonly cachePath: string;
     private accounts: msal.AccountInfo[] = [];
 
-    constructor(app: App) {
+    constructor(app: App, pluginDir: string) {
         this.adapter = app.vault.adapter;
-        this.cachePath = `${app.vault.configDir}/Microsoft_cache.json`;
+        this.cachePath = `${pluginDir}/Microsoft_cache.json`;
         this.app = app;
 
         this._clientId = 'a1172059-5f55-45cd-9665-8dccc98c2587';

@@ -666,6 +666,18 @@ export class MsTodoActions {
 
                     const returnedTask = await this.todoApi.createTaskFromToDo(listId, todo.getTodoTask());
 
+                    if (cachedTasksDelta) {
+                        let listCache = cachedTasksDelta.allLists.find((l) => l.listId === listId);
+                        if (!listCache && todo.listName && listId) {
+                            listCache = new TasksDeltaCollection([], '', listId, todo.listName);
+                            cachedTasksDelta.allLists.push(listCache);
+                        }
+
+                        if (listCache) {
+                            listCache.allTasks.push(returnedTask);
+                        }
+                    }
+
                     todo.status = returnedTask.status;
                     await todo.cacheTaskId(returnedTask.id ?? '');
 
@@ -712,6 +724,10 @@ export class MsTodoActions {
 
         // Save settings after the map is done to persist hashes
         await this.settingsManager.saveSettings();
+
+        if (cachedTasksDelta) {
+            await this.setDeltaCache(cachedTasksDelta);
+        }
 
         // Update the entire page.
         await this.plugin.app.vault.modify(activeFile, modifiedPage.join('\n'));

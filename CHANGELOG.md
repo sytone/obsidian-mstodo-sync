@@ -17,6 +17,8 @@ All notable changes to this project will be documented in this file.
 - **Context Menu**: "Sync Task to specific list..." option to choose a target list when pushing.
 
 ### Fixed
+- **New Task Cache**: Newly created tasks (Right Click -> Send to To Do) are now immediately cached, ensuring subsequent updates (like completion) sync correctly.
+- **Cache File Location**: Moved `Microsoft_cache.json` and `mstd-tasks-delta.json` to the plugin directory to ensure clean uninstallation.
 - **400 Bad Request Error**: Fixed `webUrl` validation for linkedResources (local IPs excluded)
 - **linkedResources Creation**: Now created separately after task creation when blockLink is available
 - **List Selector**: Fixed modal not returning selection (onClose override issue)

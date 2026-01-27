@@ -324,7 +324,7 @@ export async function getTask(
 }
 
 async function getDeltaCache(plugin: MsTodoSync) {
-    const cachePath = `${plugin.app.vault.configDir}/mstd-tasks-delta.json`;
+    const cachePath = `${plugin.manifest.dir}/mstd-tasks-delta.json`;
     const adapter: DataAdapter = plugin.app.vault.adapter;
     let cachedTasksDelta: TasksDeltaCollection | undefined;
 
@@ -343,7 +343,7 @@ export async function getTaskDelta(todoApi: TodoApi, listId: string | undefined,
         return;
     }
 
-    const cachePath = `${plugin.app.vault.configDir}/mstd-tasks-delta.json`;
+    const cachePath = `${plugin.manifest.dir}/mstd-tasks-delta.json`;
     const adapter: DataAdapter = plugin.app.vault.adapter;
     if (reset) {
         await adapter.remove(cachePath);
